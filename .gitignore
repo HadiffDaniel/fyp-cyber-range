@@ -1,0 +1,19 @@
+# Secrets - never commit
+passwords.yml
+clouds.yaml
+*openrc*
+*.pem
+*.key
+id_*
+.env
+
+# Large files
+*.img
+*.qcow2
+*.iso
+
+# Python
+venv/
+kolla-venv/
+__pycache__/
+*.pyc
