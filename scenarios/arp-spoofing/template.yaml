@@ -1,0 +1,142 @@
+heat_template_version: 2021-04-16
+
+description: >
+  ARP Spoofing and Detection scenario. One isolated network per group with
+  a Kali attacker, an Ubuntu defender and an Ubuntu victim. No router, so
+  traffic cannot leave the group network. Port security is disabled on this
+  network only, so ARP spoofing is possible inside it.
+
+parameters:
+  group_id:
+    type: string
+    description: Group number (1-99), used for names and the 10.10.N.0/24 subnet
+    constraints:
+      - allowed_pattern: "^[1-9][0-9]?$"
+  student_password:
+    type: string
+    hidden: true
+    default: CyberLab123
+    description: Login password for all VMs in this group
+  attacker_image:
+    type: string
+    default: kali-lab
+  target_image:
+    type: string
+    default: ubuntu-lab
+  attacker_flavor:
+    type: string
+    default: lab.attack
+  target_flavor:
+    type: string
+    default: lab.small
+
+resources:
+  net:
+    type: OS::Neutron::Net
+    properties:
+      name: { str_replace: { template: gGID-arp-net, params: { GID: { get_param: group_id } } } }
+      port_security_enabled: false
+
+  subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network: { get_resource: net }
+      ip_version: 4
+      cidr: { str_replace: { template: 10.10.GID.0/24, params: { GID: { get_param: group_id } } } }
+      gateway_ip: ""
+      enable_dhcp: true
+      allocation_pools:
+        - start: { str_replace: { template: 10.10.GID.100, params: { GID: { get_param: group_id } } } }
+          end:   { str_replace: { template: 10.10.GID.200, params: { GID: { get_param: group_id } } } }
+
+  attacker_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_resource: net }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_resource: subnet }
+          ip_address: { str_replace: { template: 10.10.GID.10, params: { GID: { get_param: group_id } } } }
+
+  defender_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_resource: net }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_resource: subnet }
+          ip_address: { str_replace: { template: 10.10.GID.20, params: { GID: { get_param: group_id } } } }
+
+  victim_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_resource: net }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_resource: subnet }
+          ip_address: { str_replace: { template: 10.10.GID.30, params: { GID: { get_param: group_id } } } }
+
+  attacker:
+    type: OS::Nova::Server
+    properties:
+      name: { str_replace: { template: gGID-arp-attacker, params: { GID: { get_param: group_id } } } }
+      image: { get_param: attacker_image }
+      flavor: { get_param: attacker_flavor }
+      networks: [ { port: { get_resource: attacker_port } } ]
+      config_drive: true
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            hostname: attacker
+            password: PASS
+            chpasswd: { expire: false }
+            ssh_pwauth: true
+          params: { PASS: { get_param: student_password } }
+
+  defender:
+    type: OS::Nova::Server
+    properties:
+      name: { str_replace: { template: gGID-arp-defender, params: { GID: { get_param: group_id } } } }
+      image: { get_param: target_image }
+      flavor: { get_param: target_flavor }
+      networks: [ { port: { get_resource: defender_port } } ]
+      config_drive: true
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            hostname: defender
+            password: PASS
+            chpasswd: { expire: false }
+            ssh_pwauth: true
+          params: { PASS: { get_param: student_password } }
+
+  victim:
+    type: OS::Nova::Server
+    properties:
+      name: { str_replace: { template: gGID-arp-victim, params: { GID: { get_param: group_id } } } }
+      image: { get_param: target_image }
+      flavor: { get_param: target_flavor }
+      networks: [ { port: { get_resource: victim_port } } ]
+      config_drive: true
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            hostname: victim
+            password: PASS
+            chpasswd: { expire: false }
+            ssh_pwauth: true
+          params: { PASS: { get_param: student_password } }
+
+outputs:
+  attacker_ip:
+    value: { get_attr: [attacker_port, fixed_ips, 0, ip_address] }
+  defender_ip:
+    value: { get_attr: [defender_port, fixed_ips, 0, ip_address] }
+  victim_ip:
+    value: { get_attr: [victim_port, fixed_ips, 0, ip_address] }
